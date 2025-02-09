@@ -327,4 +327,12 @@ def download_file(filename):
         return jsonify({'error': f'Error downloading file: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Create required directories if they don't exist
+    os.makedirs('uploads', exist_ok=True)
+    os.makedirs('processed', exist_ok=True)
+    
+    # Get port from environment variable (for Render deployment)
+    port = int(os.environ.get('PORT', 5000))
+    
+    # Run the app
+    app.run(host='0.0.0.0', port=port)
