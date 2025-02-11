@@ -1,7 +1,7 @@
 Flask==2.0.1
 Werkzeug==2.0.1
 gunicorn==20.1.0
-Pillow-SIMD==9.0.0.post1
-numpy
-opencv-python-headless
+Pillow==9.5.0
+numpy==1.21.6
+opencv-python-headless==4.5.5.64
 python-dotenv==0.19.0
