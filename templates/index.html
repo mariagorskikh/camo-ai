@@ -366,12 +366,12 @@
                     return;
                 }
                 
-                showProcessing();
-                
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
-                
+
                 try {
+                    showProcessing();
+                    
                     const response = await fetch('/upload', {
                         method: 'POST',
                         body: formData
@@ -383,6 +383,9 @@
                         showError(result.error || 'An error occurred');
                         return;
                     }
+                    
+                    // Hide any previous status messages
+                    uploadStatus.style.display = 'none';
                     
                     const reader = new FileReader();
                     reader.onload = function(e) {
@@ -399,9 +402,6 @@
                         updateConfidenceDisplay(result.original_confidence, result.processed_confidence);
                         document.getElementById('confidenceDisplay').style.display = 'block';
                     }
-                    
-                    // Don't show any status message if successful
-                    uploadStatus.style.display = 'none';
                     
                 } catch (error) {
                     console.error('Error:', error);
