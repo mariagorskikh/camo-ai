@@ -15,8 +15,14 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Create required directories if they don't exist
-UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
-PROCESSED_FOLDER = os.path.join(os.getcwd(), 'processed')
+if os.environ.get('RAILWAY_ENVIRONMENT'):
+    # Use /tmp for Railway deployment
+    UPLOAD_FOLDER = '/tmp/uploads'
+    PROCESSED_FOLDER = '/tmp/processed'
+else:
+    # Local development paths
+    UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+    PROCESSED_FOLDER = os.path.join(os.getcwd(), 'processed')
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
@@ -359,7 +365,7 @@ if __name__ == '__main__':
     cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
     cleanup_thread.start()
     
-    # Get port from environment variable (for Render deployment)
+    # Get port from environment variable
     port = int(os.environ.get('PORT', 8080))
     
     # Run the app
