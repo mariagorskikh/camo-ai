@@ -15,8 +15,8 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Create required directories if they don't exist
-if os.environ.get('RAILWAY_ENVIRONMENT'):
-    # Use /tmp for Railway deployment
+if os.environ.get('RENDER') or os.environ.get('RAILWAY_ENVIRONMENT'):
+    # Use /tmp for cloud deployments
     UPLOAD_FOLDER = '/tmp/uploads'
     PROCESSED_FOLDER = '/tmp/processed'
 else:
@@ -27,7 +27,16 @@ else:
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov'}
+
+# Ensure upload and processed directories exist at startup
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+
+# Add error handling for file operations
+@app.errorhandler(Exception)
+def handle_error(error):
+    app.logger.error(f"An error occurred: {str(error)}")
+    return jsonify({"error": "An error occurred while processing the image. Please try again."}), 500
 
 # Load OpenCV's pre-trained classifiers
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -39,7 +48,7 @@ if eye_cascade.empty():
     raise RuntimeError("Error: Could not load eye cascade classifier")
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov'}
 
 def apply_ai_safe_filter(image, parameters=None):
     try:
@@ -249,92 +258,62 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
-        logger.info("Starting file upload")
-        
         if 'file' not in request.files:
-            logger.error("No file part in request")
-            return jsonify({'error': 'No file part'}), 400
-        
+            return jsonify({'error': 'No file provided'}), 400
+            
         file = request.files['file']
         if file.filename == '':
-            logger.error("No selected file")
-            return jsonify({'error': 'No selected file'}), 400
-        
+            return jsonify({'error': 'No file selected'}), 400
+            
         if not allowed_file(file.filename):
-            logger.error("Invalid file type: %s", file.filename)
-            return jsonify({'error': 'Invalid file type'}), 400
+            return jsonify({'error': 'File type not allowed'}), 400
+
+        # Create a secure filename and ensure directories exist
+        filename = secure_filename(file.filename)
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        os.makedirs(PROCESSED_FOLDER, exist_ok=True)
         
+        # Save the uploaded file
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(upload_path)
+        
+        # Process the image
         try:
-            # Save original file
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(filepath)
-            logger.info("Original file saved: %s", filepath)
-            
-            # Get original image recognition results
-            original_results = test_ai_recognition(filepath)
-            logger.info("Original image results: %s", original_results)
-            
-            # Get parameters from request
-            parameters = {}
-            param_defaults = {
-                'noise_intensity': 4.0,
-                'grid_opacity': 0.12,
-                'pattern_size': 16,
-                'sharpness': 1.02
-            }
-            
-            for key, default in param_defaults.items():
-                try:
-                    value = float(request.form.get(key, default))
-                    parameters[key] = value
-                except (TypeError, ValueError) as e:
-                    logger.warning("Invalid parameter %s, using default: %s", key, str(e))
-                    parameters[key] = default
-            
-            # Process image
-            logger.info("Processing image with parameters: %s", parameters)
-            with Image.open(filepath) as img:
-                # Process image with AI-safe filter
-                processed_img = apply_ai_safe_filter(img, parameters)
+            with Image.open(upload_path) as img:
+                processed_img = apply_ai_safe_filter(img)
                 
                 # Save processed image
-                output_filename = f'processed_{filename}'
-                output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
-                processed_img.save(output_path)
-                logger.info("Processed image saved: %s", output_path)
-            
-            # Get processed image recognition results
-            processed_results = test_ai_recognition(output_path)
-            logger.info("Processed image results: %s", processed_results)
-            
-            return jsonify({
-                'message': 'File successfully uploaded and processed',
-                'filename': output_filename,
-                'ai_test_results': {
-                    'original': original_results,
-                    'processed': processed_results
-                }
-            })
-            
+                processed_filename = f"processed_{filename}"
+                processed_path = os.path.join(PROCESSED_FOLDER, processed_filename)
+                processed_img.save(processed_path)
+                
+                # Test AI recognition
+                confidence_scores = test_ai_recognition(upload_path)
+                
+                return jsonify({
+                    'filename': processed_filename,
+                    'original_confidence': confidence_scores.get('confidence_score', 0),
+                    'features_detected': confidence_scores.get('features_detected', {})
+                })
+                
         except Exception as e:
-            logger.error("Error processing image: %s", str(e), exc_info=True)
-            return jsonify({'error': 'An error occurred while processing the image. Please try again.'}), 500
+            app.logger.error(f"Error processing image: {str(e)}")
+            return jsonify({'error': 'Error processing image'}), 500
             
     except Exception as e:
-        logger.error("Error in upload_file: %s", str(e), exc_info=True)
-        return jsonify({'error': 'An error occurred while uploading the file. Please try again.'}), 500
+        app.logger.error(f"Upload error: {str(e)}")
+        return jsonify({'error': 'Error uploading file'}), 500
 
 @app.route('/download/<filename>')
 def download_file(filename):
     try:
         return send_file(
-            os.path.join(app.config['UPLOAD_FOLDER'], filename),
+            os.path.join(PROCESSED_FOLDER, filename),
             as_attachment=True
         )
     except Exception as e:
-        logger.error(f"Error downloading file: {str(e)}")
-        return jsonify({'error': f'Error downloading file: {str(e)}'}), 500
+        app.logger.error(f"Download error: {str(e)}")
+        return jsonify({'error': 'Error downloading file'}), 500
 
 def cleanup_old_files():
     """Remove files older than 1 hour from uploads and processed folders"""
@@ -357,10 +336,6 @@ def cleanup_old_files():
         time.sleep(3600)  # Run every hour
 
 if __name__ == '__main__':
-    # Create required directories if they don't exist
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    os.makedirs(PROCESSED_FOLDER, exist_ok=True)
-    
     # Start cleanup thread
     cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
     cleanup_thread.start()
