@@ -57,29 +57,89 @@ def allowed_file(filename):
 def apply_ai_safe_filter(image, parameters=None):
     """Apply AI-safe filter to the image"""
     try:
+        # Use default parameters if none provided
+        if parameters is None:
+            parameters = {
+                'noise_intensity': 4.0,      # Increased noise
+                'grid_opacity': 0.12,        # Increased grid opacity
+                'pattern_size': 16,          # Smaller pattern size
+                'sharpness': 1.02            # Very slight sharpness
+            }
+        
         # Convert PIL Image to numpy array
         img_array = np.array(image)
         
-        # Basic image processing without face detection
-        # Convert to HSV for better color manipulation
+        # Handle different image formats
         if len(img_array.shape) == 2:  # Grayscale
             img_array = cv2.cvtColor(img_array, cv2.COLOR_GRAY2RGB)
         elif len(img_array.shape) == 3 and img_array.shape[2] == 4:  # RGBA
             img_array = img_array[:, :, :3]  # Remove alpha channel
             
-        # Apply basic noise and pattern
+        # Store dimensions
         h, w = img_array.shape[:2]
-        noise = np.random.normal(0, 10, img_array.shape).astype(np.uint8)
-        result = cv2.add(img_array, noise)
         
-        # Add a subtle pattern
-        pattern = np.zeros((h, w), dtype=np.uint8)
-        for i in range(0, h, 8):
-            for j in range(0, w, 8):
-                pattern[i:i+4, j:j+4] = 255
+        # Convert to HSV color space
+        hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+        h_channel, s_channel, v_channel = cv2.split(hsv)
         
-        pattern = cv2.merge([pattern, pattern, pattern])
-        result = cv2.addWeighted(result, 0.9, pattern, 0.1, 0)
+        # Store original value channel statistics
+        original_v_mean = np.mean(v_channel)
+        
+        # Create strategic interference pattern
+        pattern = np.zeros((h, w), dtype=np.float32)
+        pattern_size = int(parameters['pattern_size'])
+        
+        # Create a more effective interference pattern
+        for i in range(0, h, pattern_size):
+            for j in range(0, w, pattern_size):
+                # Add random offset to create less regular pattern
+                offset = np.random.randint(-2, 3)
+                pattern[i:i+pattern_size//2+offset, j:j+pattern_size//2+offset] = 255
+        
+        # Convert value channel to float for processing
+        v_float = v_channel.astype(np.float32)
+        
+        # Add balanced noise (zero mean)
+        noise = np.random.normal(0, parameters['noise_intensity'], (h, w))
+        noise = noise - np.mean(noise)  # Ensure zero mean
+        v_float = v_float + noise
+        
+        # Add pattern with opacity
+        grid_opacity = parameters['grid_opacity']
+        v_float = v_float + pattern * grid_opacity
+        
+        # Ensure we maintain original average brightness
+        v_float = v_float - (np.mean(v_float) - original_v_mean)
+        
+        # Apply minimal local contrast enhancement
+        v_float = np.clip(v_float, 0, 255).astype(np.uint8)
+        clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(16,16))
+        v_float = clahe.apply(v_float).astype(np.float32)
+        
+        # Maintain original brightness after CLAHE
+        v_float = v_float - (np.mean(v_float) - original_v_mean)
+        
+        # Apply very subtle sharpening
+        sharpness = parameters['sharpness']
+        kernel = np.array([[-0.1,-0.1,-0.1],
+                         [-0.1, 1.8,-0.1],
+                         [-0.1,-0.1,-0.1]]) * sharpness
+        v_float = cv2.filter2D(v_float, -1, kernel)
+        
+        # Final brightness preservation
+        v_float = v_float - (np.mean(v_float) - original_v_mean)
+        
+        # Ensure value channel is in valid range
+        v_processed = np.clip(v_float, 0, 255).astype(np.uint8)
+        
+        # Merge channels back
+        hsv_result = cv2.merge([h_channel, s_channel, v_processed])
+        
+        # Convert back to RGB
+        result = cv2.cvtColor(hsv_result, cv2.COLOR_HSV2RGB)
+        
+        # Ensure final values are in valid range
+        result = np.clip(result, 0, 255).astype(np.uint8)
         
         # Convert back to PIL Image
         return Image.fromarray(result)
@@ -117,10 +177,17 @@ def upload_file():
         # Process the image
         try:
             with Image.open(upload_path) as img:
+                # Resize large images to reduce processing time
+                max_size = 1500
+                if img.size[0] > max_size or img.size[1] > max_size:
+                    ratio = min(max_size/img.size[0], max_size/img.size[1])
+                    new_size = (int(img.size[0]*ratio), int(img.size[1]*ratio))
+                    img = img.resize(new_size, Image.Resampling.LANCZOS)
+                
                 processed_img = apply_ai_safe_filter(img)
                 processed_filename = f"processed_{filename}"
                 processed_path = os.path.join(PROCESSED_FOLDER, processed_filename)
-                processed_img.save(processed_path)
+                processed_img.save(processed_path, quality=95, optimize=True)
                 
                 return jsonify({
                     'filename': processed_filename,
