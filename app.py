@@ -5,6 +5,7 @@ from flask import Flask, request, jsonify, render_template, send_file
 from PIL import Image
 from werkzeug.utils import secure_filename
 import logging
+import tempfile
 
 # Configure logging
 logging.basicConfig(
@@ -13,17 +14,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create required directories if they don't exist
-UPLOAD_FOLDER = '/tmp/uploads'
-PROCESSED_FOLDER = '/tmp/processed'
+# Create required directories using tempfile
+UPLOAD_FOLDER = tempfile.mkdtemp()
+PROCESSED_FOLDER = tempfile.mkdtemp()
 
-app = Flask(__name__)
+logger.info(f"Upload folder: {UPLOAD_FOLDER}")
+logger.info(f"Processed folder: {PROCESSED_FOLDER}")
+
+app = Flask(__name__, 
+    template_folder=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates'))
 app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024  # 8MB max file size
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Ensure directories exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+app.config['PROCESSED_FOLDER'] = PROCESSED_FOLDER
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
@@ -68,7 +70,11 @@ def apply_ai_safe_filter(image):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        logger.error(f"Error rendering template: {str(e)}")
+        return str(e), 500
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -87,6 +93,8 @@ def upload_file():
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(upload_path)
         
+        logger.info(f"File saved to: {upload_path}")
+        
         # Process image
         with Image.open(upload_path) as img:
             # Convert to grayscale and resize if too large
@@ -96,8 +104,10 @@ def upload_file():
             
             processed_img = apply_ai_safe_filter(img)
             processed_filename = f"processed_{filename}"
-            processed_path = os.path.join(PROCESSED_FOLDER, processed_filename)
+            processed_path = os.path.join(app.config['PROCESSED_FOLDER'], processed_filename)
             processed_img.save(processed_path, 'JPEG', quality=85, optimize=True)
+            
+            logger.info(f"Processed image saved to: {processed_path}")
         
         # Get scores
         original_results = test_ai_recognition(upload_path)
@@ -112,25 +122,39 @@ def upload_file():
             
     except Exception as e:
         logger.error(f"Error: {str(e)}")
-        return jsonify({'error': 'Error processing image'}), 500
+        return jsonify({'error': str(e)}), 500
     finally:
         # Cleanup
         try:
             if 'upload_path' in locals():
                 os.remove(upload_path)
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Cleanup error: {str(e)}")
 
 @app.route('/download/<filename>')
 def download_file(filename):
     try:
+        file_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+        if not os.path.exists(file_path):
+            logger.error(f"File not found: {file_path}")
+            return jsonify({'error': 'File not found'}), 404
+            
         return send_file(
-            os.path.join(PROCESSED_FOLDER, filename),
-            mimetype='image/jpeg'
+            file_path,
+            mimetype='image/jpeg',
+            as_attachment=True
         )
     except Exception as e:
         logger.error(f"Download error: {str(e)}")
-        return jsonify({'error': 'Error downloading file'}), 500
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/health')
+def health():
+    return jsonify({
+        'status': 'healthy',
+        'upload_dir': os.path.exists(UPLOAD_FOLDER),
+        'processed_dir': os.path.exists(PROCESSED_FOLDER)
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
