@@ -39,216 +39,53 @@ def handle_error(error):
     return jsonify({"error": "An error occurred while processing the image. Please try again."}), 500
 
 # Load OpenCV's pre-trained classifiers
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
+try:
+    cascade_path = cv2.data.haarcascades
+    face_cascade = cv2.CascadeClassifier(os.path.join(cascade_path, 'haarcascade_frontalface_default.xml'))
+    eye_cascade = cv2.CascadeClassifier(os.path.join(cascade_path, 'haarcascade_eye.xml'))
 
-if face_cascade.empty():
-    raise RuntimeError("Error: Could not load face cascade classifier")
-if eye_cascade.empty():
-    raise RuntimeError("Error: Could not load eye cascade classifier")
+    if face_cascade.empty():
+        app.logger.error("Error: Could not load face cascade classifier")
+    if eye_cascade.empty():
+        app.logger.error("Error: Could not load eye cascade classifier")
+except Exception as e:
+    app.logger.error(f"Error loading classifiers: {str(e)}")
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov'}
 
 def apply_ai_safe_filter(image, parameters=None):
+    """Apply AI-safe filter to the image"""
     try:
-        # Use default parameters if none provided
-        if parameters is None:
-            parameters = {
-                'noise_intensity': 4.0,      # Increased noise
-                'grid_opacity': 0.12,        # Increased grid opacity
-                'pattern_size': 16,          # Smaller pattern size
-                'sharpness': 1.02            # Very slight sharpness
-            }
-        
-        logger.info("Starting image processing with parameters: %s", parameters)
-        
         # Convert PIL Image to numpy array
         img_array = np.array(image)
         
-        # Handle different image formats
+        # Basic image processing without face detection
+        # Convert to HSV for better color manipulation
         if len(img_array.shape) == 2:  # Grayscale
             img_array = cv2.cvtColor(img_array, cv2.COLOR_GRAY2RGB)
         elif len(img_array.shape) == 3 and img_array.shape[2] == 4:  # RGBA
             img_array = img_array[:, :, :3]  # Remove alpha channel
-        
-        # Store dimensions
+            
+        # Apply basic noise and pattern
         h, w = img_array.shape[:2]
+        noise = np.random.normal(0, 10, img_array.shape).astype(np.uint8)
+        result = cv2.add(img_array, noise)
         
-        # Convert to HSV color space
-        hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
-        h_channel, s_channel, v_channel = cv2.split(hsv)
+        # Add a subtle pattern
+        pattern = np.zeros((h, w), dtype=np.uint8)
+        for i in range(0, h, 8):
+            for j in range(0, w, 8):
+                pattern[i:i+4, j:j+4] = 255
         
-        # Store original value channel statistics
-        original_v_mean = np.mean(v_channel)
-        
-        # Create strategic interference pattern
-        pattern = np.zeros((h, w), dtype=np.float32)
-        pattern_size = int(parameters['pattern_size'])
-        
-        # Create a more effective interference pattern
-        for i in range(h):
-            for j in range(w):
-                # Complex pattern that combines multiple frequencies
-                val = 0
-                # Vertical lines
-                val += 5 if (i + j) % pattern_size < pattern_size // 2 else -5
-                # Diagonal lines
-                val += 5 if (i - j) % pattern_size < pattern_size // 2 else -5
-                # Circular pattern
-                dist = np.sqrt((i - h/2)**2 + (j - w/2)**2)
-                val += 5 if (dist % pattern_size) < pattern_size // 2 else -5
-                # Checkerboard pattern
-                val += 5 if ((i // (pattern_size//2) + j // (pattern_size//2)) % 2) else -5
-                
-                pattern[i, j] = val
-        
-        # Convert value channel to float for processing
-        v_float = v_channel.astype(np.float32)
-        
-        # Add balanced noise (zero mean)
-        noise = np.random.normal(0, parameters['noise_intensity'], (h, w))
-        noise = noise - np.mean(noise)  # Ensure zero mean
-        v_float = v_float + noise
-        
-        # Add pattern with increased opacity
-        grid_opacity = parameters['grid_opacity']
-        v_float = v_float + pattern * grid_opacity
-        
-        # Ensure we maintain original average brightness
-        v_float = v_float - (np.mean(v_float) - original_v_mean)
-        
-        # Apply minimal local contrast enhancement
-        v_float = np.clip(v_float, 0, 255).astype(np.uint8)
-        clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(16,16))
-        v_float = clahe.apply(v_float).astype(np.float32)
-        
-        # Maintain original brightness after CLAHE
-        v_float = v_float - (np.mean(v_float) - original_v_mean)
-        
-        # Apply very subtle sharpening
-        sharpness = parameters['sharpness']
-        kernel = np.array([[-0.1,-0.1,-0.1],
-                          [-0.1, 1.8,-0.1],
-                          [-0.1,-0.1,-0.1]]) * sharpness
-        v_float = cv2.filter2D(v_float, -1, kernel)
-        
-        # Final brightness preservation
-        v_float = v_float - (np.mean(v_float) - original_v_mean)
-        
-        # Ensure value channel is in valid range
-        v_processed = np.clip(v_float, 0, 255).astype(np.uint8)
-        
-        # Merge channels back
-        hsv_result = cv2.merge([h_channel, s_channel, v_processed])
-        
-        # Convert back to RGB
-        result = cv2.cvtColor(hsv_result, cv2.COLOR_HSV2RGB)
-        
-        # Ensure final values are in valid range
-        result = np.clip(result, 0, 255).astype(np.uint8)
+        pattern = cv2.merge([pattern, pattern, pattern])
+        result = cv2.addWeighted(result, 0.9, pattern, 0.1, 0)
         
         # Convert back to PIL Image
         return Image.fromarray(result)
         
     except Exception as e:
-        logger.error("Error in apply_ai_safe_filter: %s", str(e), exc_info=True)
-        raise
-
-def test_ai_recognition(image_path):
-    """Test AI recognition capabilities on an image"""
-    try:
-        # Load the image
-        img = cv2.imread(image_path)
-        if img is None:
-            raise ValueError("Failed to load image")
-            
-        # Convert to grayscale for detection
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Enhance contrast for better detection
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        gray = clahe.apply(gray)
-        
-        # Initialize detection results
-        features_detected = {
-            'faces': 0,
-            'eyes': 0
-        }
-        
-        # Detect faces with different scales for better accuracy
-        faces = []
-        scales = [1.1, 1.2, 1.3]
-        min_neighbors_list = [3, 4, 5]
-        
-        for scale, min_neighbors in zip(scales, min_neighbors_list):
-            detected = face_cascade.detectMultiScale(
-                gray,
-                scaleFactor=scale,
-                minNeighbors=min_neighbors,
-                minSize=(30, 30)
-            )
-            if len(detected) > 0:
-                faces.extend(detected)
-        
-        # Remove duplicates
-        if faces:
-            faces = np.unique(np.array(faces), axis=0)
-        features_detected['faces'] = len(faces)
-        
-        # Detect eyes in face regions
-        total_eyes = 0
-        for (x, y, w, h) in faces:
-            roi_gray = gray[y:y+h, x:x+w]
-            eyes = eye_cascade.detectMultiScale(
-                roi_gray,
-                scaleFactor=1.1,
-                minNeighbors=4,
-                minSize=(20, 20)
-            )
-            total_eyes += len(eyes)
-        features_detected['eyes'] = total_eyes
-        
-        # Calculate raw confidence score (0-100)
-        raw_confidence = 0
-        
-        # Add points for detected features
-        raw_confidence += features_detected['faces'] * 40  # Each face worth 40 points
-        raw_confidence += features_detected['eyes'] * 20   # Each eye worth 20 points
-        
-        # If no faces/eyes detected, use SIFT features
-        if raw_confidence == 0:
-            sift = cv2.SIFT_create()
-            keypoints = sift.detect(gray, None)
-            raw_confidence = min(40, len(keypoints) / 10)
-        
-        # Cap raw confidence at 100
-        raw_confidence = min(100, raw_confidence)
-        
-        # For processed images, scale to 10-20% range
-        if 'processed' in image_path.lower():
-            # Scale confidence to 10-20% range
-            if raw_confidence > 0:
-                # Calculate what percentage of original confidence to keep
-                # to get a final score between 10-20%
-                target = 15  # Target middle of range
-                scale_factor = (target - 10) / raw_confidence
-                confidence_score = 10 + (raw_confidence * scale_factor)
-            else:
-                confidence_score = 15  # Default to middle of range
-        else:
-            confidence_score = raw_confidence
-        
-        # Ensure final score is within bounds
-        confidence_score = max(10, min(100, confidence_score))
-        
-        return {
-            'confidence_score': round(confidence_score, 1),
-            'features_detected': features_detected
-        }
-        
-    except Exception as e:
-        logger.error("Error in test_ai_recognition: %s", str(e), exc_info=True)
+        app.logger.error(f"Error in apply_ai_safe_filter: {str(e)}")
         raise
 
 @app.route('/')
@@ -281,24 +118,18 @@ def upload_file():
         try:
             with Image.open(upload_path) as img:
                 processed_img = apply_ai_safe_filter(img)
-                
-                # Save processed image
                 processed_filename = f"processed_{filename}"
                 processed_path = os.path.join(PROCESSED_FOLDER, processed_filename)
                 processed_img.save(processed_path)
                 
-                # Test AI recognition
-                confidence_scores = test_ai_recognition(upload_path)
-                
                 return jsonify({
                     'filename': processed_filename,
-                    'original_confidence': confidence_scores.get('confidence_score', 0),
-                    'features_detected': confidence_scores.get('features_detected', {})
+                    'message': 'Image processed successfully'
                 })
                 
         except Exception as e:
             app.logger.error(f"Error processing image: {str(e)}")
-            return jsonify({'error': 'Error processing image'}), 500
+            return jsonify({'error': 'Error processing image. Please try again.'}), 500
             
     except Exception as e:
         app.logger.error(f"Upload error: {str(e)}")
