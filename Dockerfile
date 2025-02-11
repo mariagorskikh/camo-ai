@@ -21,10 +21,11 @@ COPY . .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    FLASK_ENV=production
+    FLASK_ENV=production \
+    PORT=8000
 
-# Expose port
-EXPOSE 8000
+# Expose port (this is just documentation, Railway will override it)
+EXPOSE ${PORT}
 
-# Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app", "--workers", "1", "--threads", "2", "--timeout", "30"]
+# Run the application with the PORT environment variable
+CMD ["gunicorn", "--bind", "0.0.0.0:${PORT}", "app:app", "--workers", "1", "--threads", "2", "--timeout", "30"]
