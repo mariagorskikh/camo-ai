@@ -274,9 +274,6 @@
                     </div>
                 </div>
 
-                <div id="confidenceComparison" class="mt-3"></div>
-                <div id="uploadStatus" class="alert" style="display: none;"></div>
-
                 <div class="text-center mt-4">
                     <button type="submit" class="btn btn-primary btn-lg">
                         <i class="fas fa-shield-alt"></i> Protect Image
@@ -296,7 +293,6 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const uploadForm = document.getElementById('uploadForm');
-            const uploadStatus = document.getElementById('uploadStatus');
             const originalImage = document.getElementById('originalImage');
             const processedImage = document.getElementById('processedImage');
             
@@ -306,55 +302,17 @@
                 
                 originalBar.style.width = originalScore + '%';
                 originalBar.textContent = originalScore + '%';
-                originalBar.setAttribute('aria-valuenow', originalScore);
+                originalBar.className = 'progress-bar ' + getConfidenceClass(originalScore);
                 
                 processedBar.style.width = processedScore + '%';
                 processedBar.textContent = processedScore + '%';
-                processedBar.setAttribute('aria-valuenow', processedScore);
-                
-                originalBar.className = 'progress-bar ' + getConfidenceClass(originalScore);
                 processedBar.className = 'progress-bar ' + getConfidenceClass(processedScore);
-                
-                const comparisonText = document.getElementById('confidenceComparison');
-                const reduction = ((originalScore - processedScore) / originalScore * 100).toFixed(1);
-                
-                if (processedScore < originalScore) {
-                    comparisonText.innerHTML = `
-                        <div class="alert alert-success">
-                            <i class="fas fa-check-circle"></i>
-                            Success! AI recognition confidence reduced by ${reduction}%
-                        </div>`;
-                } else {
-                    comparisonText.innerHTML = `
-                        <div class="alert alert-warning">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            Warning: The filter did not reduce AI confidence as expected
-                        </div>`;
-                }
             }
             
             function getConfidenceClass(score) {
-                if (score <= 40) return 'bg-success';   // Good - hard to detect
-                if (score <= 70) return 'bg-warning';   // Medium - partially detectable
-                return 'bg-danger';                     // Bad - easily detectable
-            }
-            
-            function showError(message) {
-                uploadStatus.className = 'alert alert-danger';
-                uploadStatus.textContent = message;
-                uploadStatus.style.display = 'block';
-            }
-            
-            function showSuccess(message) {
-                uploadStatus.className = 'alert alert-success';
-                uploadStatus.textContent = message;
-                uploadStatus.style.display = 'block';
-            }
-            
-            function showProcessing() {
-                uploadStatus.className = 'alert alert-info';
-                uploadStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing image...';
-                uploadStatus.style.display = 'block';
+                if (score < 30) return 'bg-success';
+                if (score < 70) return 'bg-warning';
+                return 'bg-danger';
             }
             
             uploadForm.addEventListener('submit', async function(e) {
@@ -362,7 +320,7 @@
                 
                 const fileInput = document.getElementById('file');
                 if (!fileInput.files.length) {
-                    showError('Please select an image file');
+                    alert('Please select an image file');
                     return;
                 }
                 
@@ -370,22 +328,12 @@
                 formData.append('file', fileInput.files[0]);
 
                 try {
-                    showProcessing();
-                    
                     const response = await fetch('/upload', {
                         method: 'POST',
                         body: formData
                     });
                     
                     const result = await response.json();
-                    
-                    if (!response.ok) {
-                        showError(result.error || 'An error occurred');
-                        return;
-                    }
-                    
-                    // Hide any previous status messages
-                    uploadStatus.style.display = 'none';
                     
                     const reader = new FileReader();
                     reader.onload = function(e) {
@@ -400,12 +348,10 @@
                     // Update confidence scores
                     if (result.original_confidence !== undefined && result.processed_confidence !== undefined) {
                         updateConfidenceDisplay(result.original_confidence, result.processed_confidence);
-                        document.getElementById('confidenceDisplay').style.display = 'block';
                     }
                     
                 } catch (error) {
                     console.error('Error:', error);
-                    showError('An error occurred while processing the image');
                 }
             });
         });
