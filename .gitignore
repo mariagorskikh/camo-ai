@@ -22,9 +22,9 @@ var/
 .venv
 venv/
 ENV/
-.idea/
-.vscode/
-*.log
 uploads/
 processed/
 .DS_Store
+.idea/
+.vscode/
+*.log

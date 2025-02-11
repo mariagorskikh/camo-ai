@@ -6,14 +6,21 @@ import numpy as np
 from PIL import Image
 import io
 import logging
+import threading
+import time
+from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+# Create required directories if they don't exist
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+PROCESSED_FOLDER = os.path.join(os.getcwd(), 'processed')
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov'}
 
 # Load OpenCV's pre-trained classifiers
@@ -24,9 +31,6 @@ if face_cascade.empty():
     raise RuntimeError("Error: Could not load face cascade classifier")
 if eye_cascade.empty():
     raise RuntimeError("Error: Could not load eye cascade classifier")
-
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -326,10 +330,34 @@ def download_file(filename):
         logger.error(f"Error downloading file: {str(e)}")
         return jsonify({'error': f'Error downloading file: {str(e)}'}), 500
 
+def cleanup_old_files():
+    """Remove files older than 1 hour from uploads and processed folders"""
+    while True:
+        try:
+            current_time = datetime.now()
+            for folder in [UPLOAD_FOLDER, PROCESSED_FOLDER]:
+                if os.path.exists(folder):
+                    for filename in os.listdir(folder):
+                        filepath = os.path.join(folder, filename)
+                        file_time = datetime.fromtimestamp(os.path.getmtime(filepath))
+                        if current_time - file_time > timedelta(hours=1):
+                            try:
+                                os.remove(filepath)
+                                logger.info(f"Removed old file: {filepath}")
+                            except Exception as e:
+                                logger.error(f"Error removing file {filepath}: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error in cleanup task: {str(e)}")
+        time.sleep(3600)  # Run every hour
+
 if __name__ == '__main__':
     # Create required directories if they don't exist
-    os.makedirs('uploads', exist_ok=True)
-    os.makedirs('processed', exist_ok=True)
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+    
+    # Start cleanup thread
+    cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
+    cleanup_thread.start()
     
     # Get port from environment variable (for Render deployment)
     port = int(os.environ.get('PORT', 8080))
