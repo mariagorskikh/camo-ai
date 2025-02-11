@@ -2,7 +2,7 @@
     "$schema": "https://railway.app/railway.schema.json",
     "build": {
         "builder": "NIXPACKS",
-        "buildCommand": "pip install -r requirements.txt"
+        "buildCommand": "pip install --upgrade pip && pip install -r requirements.txt"
     },
     "deploy": {
         "startCommand": "gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 30 --access-logfile - --error-logfile - --log-level info",
@@ -10,9 +10,10 @@
         "restartPolicyMaxRetries": 10
     },
     "variables": {
-        "PYTHON_VERSION": "3.9.16",
+        "PYTHON_VERSION": "3.9.18",
         "PYTHONUNBUFFERED": "1",
         "FLASK_ENV": "production",
-        "FLASK_DEBUG": "0"
+        "FLASK_DEBUG": "0",
+        "PIP_DISABLE_PIP_VERSION_CHECK": "1"
     }
 }
