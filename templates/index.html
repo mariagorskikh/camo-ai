@@ -394,16 +394,17 @@
                     processedImage.src = `/download/${result.filename}`;
                     processedImage.style.display = 'block';
                     
-                    if (result.ai_test_results) {
-                        const originalScore = result.ai_test_results.original.confidence_score;
-                        const processedScore = result.ai_test_results.processed.confidence_score;
-                        
-                        updateConfidenceDisplay(originalScore, processedScore);
-                        
-                        showSuccess('Image processed successfully!');
+                    // Update confidence scores
+                    if (result.original_confidence !== undefined && result.processed_confidence !== undefined) {
+                        updateConfidenceDisplay(result.original_confidence, result.processed_confidence);
+                        document.getElementById('confidenceDisplay').style.display = 'block';
                     }
+                    
+                    showSuccess(result.message || 'Image processed successfully');
+                    
                 } catch (error) {
-                    showError('An error occurred while processing the image. Please try again.');
+                    console.error('Error:', error);
+                    showError('An error occurred while processing the image');
                 }
             });
         });

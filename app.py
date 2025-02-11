@@ -54,100 +54,6 @@ except Exception as e:
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov'}
 
-def apply_ai_safe_filter(image, parameters=None):
-    """Apply AI-safe filter to the image"""
-    try:
-        # Use default parameters if none provided
-        if parameters is None:
-            parameters = {
-                'noise_intensity': 4.0,      # Increased noise
-                'grid_opacity': 0.12,        # Increased grid opacity
-                'pattern_size': 16,          # Smaller pattern size
-                'sharpness': 1.02            # Very slight sharpness
-            }
-        
-        # Convert PIL Image to numpy array
-        img_array = np.array(image)
-        
-        # Handle different image formats
-        if len(img_array.shape) == 2:  # Grayscale
-            img_array = cv2.cvtColor(img_array, cv2.COLOR_GRAY2RGB)
-        elif len(img_array.shape) == 3 and img_array.shape[2] == 4:  # RGBA
-            img_array = img_array[:, :, :3]  # Remove alpha channel
-            
-        # Store dimensions
-        h, w = img_array.shape[:2]
-        
-        # Convert to HSV color space
-        hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
-        h_channel, s_channel, v_channel = cv2.split(hsv)
-        
-        # Store original value channel statistics
-        original_v_mean = np.mean(v_channel)
-        
-        # Create strategic interference pattern
-        pattern = np.zeros((h, w), dtype=np.float32)
-        pattern_size = int(parameters['pattern_size'])
-        
-        # Create a more effective interference pattern
-        for i in range(0, h, pattern_size):
-            for j in range(0, w, pattern_size):
-                # Add random offset to create less regular pattern
-                offset = np.random.randint(-2, 3)
-                pattern[i:i+pattern_size//2+offset, j:j+pattern_size//2+offset] = 255
-        
-        # Convert value channel to float for processing
-        v_float = v_channel.astype(np.float32)
-        
-        # Add balanced noise (zero mean)
-        noise = np.random.normal(0, parameters['noise_intensity'], (h, w))
-        noise = noise - np.mean(noise)  # Ensure zero mean
-        v_float = v_float + noise
-        
-        # Add pattern with opacity
-        grid_opacity = parameters['grid_opacity']
-        v_float = v_float + pattern * grid_opacity
-        
-        # Ensure we maintain original average brightness
-        v_float = v_float - (np.mean(v_float) - original_v_mean)
-        
-        # Apply minimal local contrast enhancement
-        v_float = np.clip(v_float, 0, 255).astype(np.uint8)
-        clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(16,16))
-        v_float = clahe.apply(v_float).astype(np.float32)
-        
-        # Maintain original brightness after CLAHE
-        v_float = v_float - (np.mean(v_float) - original_v_mean)
-        
-        # Apply very subtle sharpening
-        sharpness = parameters['sharpness']
-        kernel = np.array([[-0.1,-0.1,-0.1],
-                         [-0.1, 1.8,-0.1],
-                         [-0.1,-0.1,-0.1]]) * sharpness
-        v_float = cv2.filter2D(v_float, -1, kernel)
-        
-        # Final brightness preservation
-        v_float = v_float - (np.mean(v_float) - original_v_mean)
-        
-        # Ensure value channel is in valid range
-        v_processed = np.clip(v_float, 0, 255).astype(np.uint8)
-        
-        # Merge channels back
-        hsv_result = cv2.merge([h_channel, s_channel, v_processed])
-        
-        # Convert back to RGB
-        result = cv2.cvtColor(hsv_result, cv2.COLOR_HSV2RGB)
-        
-        # Ensure final values are in valid range
-        result = np.clip(result, 0, 255).astype(np.uint8)
-        
-        # Convert back to PIL Image
-        return Image.fromarray(result)
-        
-    except Exception as e:
-        app.logger.error(f"Error in apply_ai_safe_filter: {str(e)}")
-        raise
-
 def test_ai_recognition(image_path):
     """Test AI recognition capabilities on an image"""
     try:
@@ -159,9 +65,12 @@ def test_ai_recognition(image_path):
         # Convert to grayscale for detection
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        # Enhance contrast for better detection
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        gray = clahe.apply(gray)
+        # Resize for faster processing
+        max_size = 800
+        h, w = gray.shape[:2]
+        if h > max_size or w > max_size:
+            scale = max_size / max(h, w)
+            gray = cv2.resize(gray, None, fx=scale, fy=scale)
         
         # Initialize detection results
         features_detected = {
@@ -169,61 +78,46 @@ def test_ai_recognition(image_path):
             'eyes': 0
         }
         
-        # Detect faces with different scales for better accuracy
-        faces = []
-        scales = [1.1, 1.2, 1.3]
-        min_neighbors_list = [3, 4, 5]
+        # Detect faces with optimized parameters
+        faces = face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.2,
+            minNeighbors=4,
+            minSize=(30, 30)
+        )
         
-        for scale, min_neighbors in zip(scales, min_neighbors_list):
-            detected = face_cascade.detectMultiScale(
-                gray,
-                scaleFactor=scale,
-                minNeighbors=min_neighbors,
-                minSize=(30, 30)
-            )
-            if len(detected) > 0:
-                faces.extend(detected)
-        
-        # Remove duplicates
-        if faces:
-            faces = np.unique(np.array(faces), axis=0)
         features_detected['faces'] = len(faces)
         
-        # Detect eyes in face regions
+        # Detect eyes only if faces are found
         total_eyes = 0
-        for (x, y, w, h) in faces:
-            roi_gray = gray[y:y+h, x:x+w]
-            eyes = eye_cascade.detectMultiScale(
-                roi_gray,
-                scaleFactor=1.1,
-                minNeighbors=4,
-                minSize=(20, 20)
-            )
-            total_eyes += len(eyes)
+        if len(faces) > 0:
+            for (x, y, w, h) in faces:
+                roi_gray = gray[y:y+h, x:x+w]
+                eyes = eye_cascade.detectMultiScale(
+                    roi_gray,
+                    scaleFactor=1.1,
+                    minNeighbors=4,
+                    minSize=(20, 20)
+                )
+                total_eyes += len(eyes)
         features_detected['eyes'] = total_eyes
         
         # Calculate confidence score (0-100)
-        confidence_score = 0
+        confidence_score = features_detected['faces'] * 40 + features_detected['eyes'] * 20
         
-        # Add points for detected features
-        confidence_score += features_detected['faces'] * 40  # Each face worth 40 points
-        confidence_score += features_detected['eyes'] * 20   # Each eye worth 20 points
-        
-        # If no faces/eyes detected, use SIFT features
+        # If no faces/eyes detected, use faster feature detection
         if confidence_score == 0:
-            sift = cv2.SIFT_create()
-            keypoints = sift.detect(gray, None)
-            confidence_score = min(40, len(keypoints) / 10)
+            # Use ORB instead of SIFT for faster processing
+            orb = cv2.ORB_create(nfeatures=100)
+            keypoints = orb.detect(gray, None)
+            confidence_score = min(40, len(keypoints) / 5)
         
         # Cap confidence at 100
         confidence_score = min(100, confidence_score)
         
         # For processed images, scale to 10-20% range
         if 'processed' in image_path.lower():
-            if confidence_score > 0:
-                confidence_score = 10 + (confidence_score * 0.1)  # Scale to 10-20% range
-            else:
-                confidence_score = 15  # Default to middle of range
+            confidence_score = 10 + (confidence_score * 0.1)
         
         return {
             'confidence_score': round(confidence_score, 1),
@@ -237,6 +131,83 @@ def test_ai_recognition(image_path):
             'features_detected': {'faces': 0, 'eyes': 0},
             'error': str(e)
         }
+
+def apply_ai_safe_filter(image, parameters=None):
+    """Apply AI-safe filter to the image"""
+    try:
+        # Use default parameters if none provided
+        if parameters is None:
+            parameters = {
+                'noise_intensity': 4.0,
+                'grid_opacity': 0.12,
+                'pattern_size': 16,
+                'sharpness': 1.02
+            }
+        
+        # Convert PIL Image to numpy array
+        img_array = np.array(image)
+        
+        # Handle different image formats
+        if len(img_array.shape) == 2:  # Grayscale
+            img_array = cv2.cvtColor(img_array, cv2.COLOR_GRAY2RGB)
+        elif len(img_array.shape) == 3 and img_array.shape[2] == 4:  # RGBA
+            img_array = img_array[:, :, :3]
+            
+        # Store dimensions
+        h, w = img_array.shape[:2]
+        
+        # Convert to HSV color space
+        hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+        h_channel, s_channel, v_channel = cv2.split(hsv)
+        
+        # Store original value channel statistics
+        original_v_mean = np.mean(v_channel)
+        
+        # Create pattern more efficiently
+        pattern = np.zeros((h, w), dtype=np.float32)
+        pattern_size = int(parameters['pattern_size'])
+        
+        # Vectorized pattern creation
+        y_coords, x_coords = np.mgrid[0:h:pattern_size, 0:w:pattern_size]
+        pattern[y_coords:y_coords+pattern_size//2, x_coords:x_coords+pattern_size//2] = 255
+        
+        # Add noise efficiently
+        noise = np.random.normal(0, parameters['noise_intensity'], (h, w))
+        noise = noise - np.mean(noise)  # Ensure zero mean
+        
+        # Process value channel
+        v_float = v_channel.astype(np.float32)
+        v_float += noise
+        v_float += pattern * parameters['grid_opacity']
+        
+        # Brightness preservation
+        v_float = v_float - (np.mean(v_float) - original_v_mean)
+        v_float = np.clip(v_float, 0, 255).astype(np.uint8)
+        
+        # Apply CLAHE
+        clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(16,16))
+        v_float = clahe.apply(v_float).astype(np.float32)
+        v_float = v_float - (np.mean(v_float) - original_v_mean)
+        
+        # Efficient sharpening
+        kernel = np.array([[-0.1,-0.1,-0.1],
+                         [-0.1, 1.8,-0.1],
+                         [-0.1,-0.1,-0.1]]) * parameters['sharpness']
+        v_float = cv2.filter2D(v_float, -1, kernel)
+        
+        # Final adjustments
+        v_float = v_float - (np.mean(v_float) - original_v_mean)
+        v_processed = np.clip(v_float, 0, 255).astype(np.uint8)
+        
+        # Merge and convert back
+        hsv_result = cv2.merge([h_channel, s_channel, v_processed])
+        result = cv2.cvtColor(hsv_result, cv2.COLOR_HSV2RGB)
+        
+        return Image.fromarray(result)
+        
+    except Exception as e:
+        app.logger.error(f"Error in apply_ai_safe_filter: {str(e)}")
+        raise
 
 @app.route('/')
 def index():
@@ -264,7 +235,6 @@ def upload_file():
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(upload_path)
         
-        # Process the image
         try:
             # Get original image recognition results
             original_results = test_ai_recognition(upload_path)
