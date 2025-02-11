@@ -332,7 +332,7 @@ if __name__ == '__main__':
     os.makedirs('processed', exist_ok=True)
     
     # Get port from environment variable (for Render deployment)
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 8080))
     
     # Run the app
     app.run(host='0.0.0.0', port=port)
