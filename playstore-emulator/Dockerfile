@@ -50,8 +50,9 @@ RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools \
 COPY scripts/ /opt/scripts/
 RUN chmod +x /opt/scripts/*.sh
 
-# Virtual-device data (Google login, installed apps) lives here. Mount a volume.
-VOLUME /data
+# Virtual-device data (Google login, installed apps) lives under /data.
+# Mount a volume there (docker-compose does; on Railway attach a volume at /data).
+# No VOLUME instruction: Railway's builder rejects it.
 
 # 6080 = noVNC in the browser, 5900 = raw VNC, 5555 = adb (optional)
 EXPOSE 6080 5900 5555
