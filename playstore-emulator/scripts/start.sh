@@ -123,6 +123,18 @@ EMU_PID=$!
   for k in window_animation_scale transition_animation_scale animator_duration_scale; do
     adb -s emulator-5554 shell settings put global "$k" 0 >/dev/null 2>&1 || true
   done
+  if [ ! -e /dev/kvm ] && [ "${KEEP_GOOGLE_APPS:-0}" != "1" ]; then
+    # Without KVM every background Google app competes for the emulated CPU.
+    # Disable the heavy ones that are not needed to install and use apps
+    # (Play Store, Play Services, Chrome and the keyboard stay). KEEP_GOOGLE_APPS=1 skips this.
+    for p in com.google.android.googlequicksearchbox com.google.android.apps.photos \
+             com.google.android.youtube com.google.android.gm com.google.android.apps.messaging \
+             com.google.android.apps.wellbeing com.google.android.tts \
+             com.google.android.apps.youtube.music com.google.android.videos com.google.android.apps.maps; do
+      adb -s emulator-5554 shell pm disable-user --user 0 "$p" >/dev/null 2>&1 || true
+    done
+    log "software mode: disabled background Google apps to free CPU"
+  fi
   adb -s emulator-5554 shell svc power stayon true >/dev/null 2>&1 || true
   adb -s emulator-5554 emu geo fix "$GEO_LON" "$GEO_LAT" >/dev/null 2>&1 || true
   log "GPS set to lat=$GEO_LAT lon=$GEO_LON"

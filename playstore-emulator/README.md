@@ -1,7 +1,8 @@
 # Play Store Android phone in your browser (for Uber Eats)
 
-A portrait Android 14 phone with the real Google Play Store, running in Docker
-and shown in your browser through noVNC. Sign in with your Google account,
+A portrait Android phone (Android 11 by default, Android 14 optional) with
+the real Google Play Store, running in Docker and shown in your browser
+through noVNC. Sign in with your Google account,
 install Uber Eats from the Play Store, and order.
 
 ```
@@ -118,7 +119,9 @@ and a slow UI. Logins persist on the volume.
 | `EMULATOR_RAM_MB` | `4096` | RAM given to Android. |
 
 Build-time arguments (`docker build --build-arg ...`): `API_LEVEL` (default
-`34`, Android 14; `35` and `36` also have Play Store images), `ABI` (`x86_64`).
+`30`, Android 11, the lightest option that still runs Uber Eats; `34`, `35`
+and `36` also have Play Store images and are fine on a KVM host), `ABI`
+(`x86_64`).
 
 ## Useful commands
 

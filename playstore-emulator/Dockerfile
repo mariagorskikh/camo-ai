@@ -10,7 +10,10 @@
 
 FROM ubuntu:24.04
 
-ARG API_LEVEL=34
+# Android 11 (API 30) is the default: it still runs Uber Eats and is far
+# lighter than Android 14 when there is no KVM. Build with --build-arg
+# API_LEVEL=34 for Android 14 on a KVM host.
+ARG API_LEVEL=30
 ARG IMG_TYPE=google_apis_playstore
 ARG ABI=x86_64
 ARG CMDLINE_TOOLS_BUILD=13114758
