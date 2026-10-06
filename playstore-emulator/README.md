@@ -89,6 +89,24 @@ gcloud compute instances delete android-playstore --zone us-central1-a
 Your Google login, installed apps and Uber session persist across restarts in
 the `avd-data` Docker volume.
 
+## Two ways to see the phone
+
+| URL | Transport | Use when |
+|---|---|---|
+| `/vnc.html` | noVNC over WebSocket | Direct access or SSH tunnel. Smoothest. |
+| `/phone?p=<VNC_PASSWORD>` | Plain HTTP polling (JPEG frames + taps) | Behind an edge that breaks WebSockets over HTTP/2, such as Railway's public domains. Works in any browser. |
+
+The `/phone` page draws the screen at a few frames per second; click to tap,
+drag to swipe, use the buttons for Back/Home/Recents and the text box to type.
+
+## Railway
+
+`railway up` from this directory works as is (`railway.json` selects the
+Dockerfile). Set `VNC_PASSWORD` as a service variable, attach a volume at
+`/data`, and open `https://<service-domain>/phone?p=<VNC_PASSWORD>`. Railway
+has no KVM, so the phone runs in software mode: expect a 30-minute first boot
+and a slow UI. Logins persist on the volume.
+
 ## Configuration (`.env`)
 
 | Variable | Default | Meaning |

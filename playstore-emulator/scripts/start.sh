@@ -43,8 +43,10 @@ x11vnc -display :0 -rfbport 5900 -rfbauth /root/.vnc/passwd -forever -shared \
 # websockify stays on localhost; the public port is served by wsproxy.py,
 # which restores WebSocket upgrade headers that HTTP/2 edges (Railway) strip.
 websockify --daemon --web /usr/share/novnc 127.0.0.1:6081 localhost:5900 >/tmp/websockify.log 2>&1
-log "starting noVNC on http://0.0.0.0:${NOVNC_PORT}/vnc.html"
-python3 "$(dirname "$0")/wsproxy.py" "$NOVNC_PORT" 6081 &
+# WebSocket-free viewer at /phone?p=<password> for edges that break WebSockets.
+python3 "$(dirname "$0")/webview.py" 6082 "$VNC_PASSWORD" "$SCREEN_WIDTH" "$SCREEN_HEIGHT" &
+log "starting noVNC on http://0.0.0.0:${NOVNC_PORT}/vnc.html (and /phone?p=... viewer)"
+python3 "$(dirname "$0")/wsproxy.py" "$NOVNC_PORT" 6081 6082 &
 
 # -------------------------------------------------------------------- AVD ----
 "$(dirname "$0")/create-avd.sh" "$AVD_NAME" "$DEVICE_PROFILE" "$EMULATOR_RAM_MB"
