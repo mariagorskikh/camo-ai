@@ -5,6 +5,11 @@ set -euo pipefail
 NAME="${1:-playstore}"
 PROFILE="${2:-pixel_6}"
 RAM_MB="${3:-4096}"
+# Screen of the virtual phone. Fewer pixels = much less work for the software
+# GPU, which matters enormously without KVM.
+LCD_WIDTH="${LCD_WIDTH:-1080}"
+LCD_HEIGHT="${LCD_HEIGHT:-2400}"
+LCD_DENSITY="${LCD_DENSITY:-420}"
 : "${SYSTEM_IMAGE:?SYSTEM_IMAGE must be set (e.g. system-images;android-34;google_apis_playstore;x86_64)}"
 export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-/data/avd}"
 mkdir -p "$ANDROID_AVD_HOME"
@@ -27,6 +32,9 @@ if [ -f "$CFG" ]; then
   elif [ "$HAVE_SYSDIR" != "$WANT_SYSDIR" ] || [ ! -d "${ANDROID_SDK_ROOT:?}/$WANT_SYSDIR" ]; then
     echo "[avd] '$NAME' was built from '$HAVE_SYSDIR' but this image ships '$WANT_SYSDIR';"
     echo "[avd] recreating it (installed apps and logins on the old AVD are discarded)"
+  elif [ "$(sed -n 's/^hw.lcd.width=//p' "$CFG")" != "$LCD_WIDTH" ] || [ "$(sed -n 's/^hw.lcd.height=//p' "$CFG")" != "$LCD_HEIGHT" ]; then
+    echo "[avd] '$NAME' has a different screen size than requested (${LCD_WIDTH}x${LCD_HEIGHT});"
+    echo "[avd] recreating it (installed apps and logins on the old AVD are discarded)"
   else
     set_cfg hw.ramSize "$RAM_MB"
     echo "[avd] '$NAME' already exists, keeping its data (RAM ${RAM_MB} MB)"
@@ -37,6 +45,9 @@ fi
 
 echo "[avd] creating '$NAME' from $SYSTEM_IMAGE ($PROFILE)"
 echo no | avdmanager --silent create avd --name "$NAME" --package "$SYSTEM_IMAGE" --device "$PROFILE"
+set_cfg hw.lcd.width "$LCD_WIDTH"
+set_cfg hw.lcd.height "$LCD_HEIGHT"
+set_cfg hw.lcd.density "$LCD_DENSITY"
 set_cfg hw.initialOrientation portrait
 set_cfg hw.keyboard yes
 set_cfg hw.gpu.enabled yes

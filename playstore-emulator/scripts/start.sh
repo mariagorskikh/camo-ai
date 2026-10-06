@@ -22,6 +22,14 @@ log() { echo "[start] $*"; }
 
 mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_EMULATOR_HOME"
 
+# Without KVM, default to a lighter phone (smaller screen, less RAM) unless
+# the caller chose explicitly. Set PHONE_PROFILE=full to force the Pixel 6 size.
+if [ ! -e /dev/kvm ] && [ "${PHONE_PROFILE:-auto}" != "full" ]; then
+  export LCD_WIDTH="${LCD_WIDTH:-540}" LCD_HEIGHT="${LCD_HEIGHT:-1200}" LCD_DENSITY="${LCD_DENSITY:-240}"
+  EMULATOR_RAM_MB="${EMULATOR_RAM_MB_SOFTWARE:-2560}"
+  log "no KVM: using the light phone profile ${LCD_WIDTH}x${LCD_HEIGHT}@${LCD_DENSITY}dpi, ${EMULATOR_RAM_MB} MB RAM"
+fi
+
 # ---------------------------------------------------------------- X + VNC ----
 log "starting Xvfb ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
 # -s 0 / -dpms: never blank the virtual screen.
@@ -111,6 +119,10 @@ EMU_PID=$!
   done
   log "Android booted"
   adb -s emulator-5554 shell settings put system screen_off_timeout 2147483647 >/dev/null 2>&1 || true
+  # Animations cost real frames in software rendering; turn them off.
+  for k in window_animation_scale transition_animation_scale animator_duration_scale; do
+    adb -s emulator-5554 shell settings put global "$k" 0 >/dev/null 2>&1 || true
+  done
   adb -s emulator-5554 shell svc power stayon true >/dev/null 2>&1 || true
   adb -s emulator-5554 emu geo fix "$GEO_LON" "$GEO_LAT" >/dev/null 2>&1 || true
   log "GPS set to lat=$GEO_LAT lon=$GEO_LON"
