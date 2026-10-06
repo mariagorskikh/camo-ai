@@ -67,8 +67,10 @@ if [ -e /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
   log "KVM available: hardware acceleration on"
 else
   ACCEL="-accel off"
-  log "WARNING: /dev/kvm not available. Running in pure software emulation;"
-  log "         boot can take 15+ minutes and the phone will be very slow."
+  # Multi-threaded TCG: one host thread per virtual CPU instead of one for all.
+  QEMU_TAIL="-qemu -accel tcg,thread=multi"
+  log "WARNING: /dev/kvm not available. Running in pure software emulation"
+  log "         (multi-threaded TCG); boot takes 10-20 minutes and the phone is slow."
   log "         Run the container with --device /dev/kvm on a host that has KVM."
 fi
 
@@ -81,7 +83,7 @@ emulator -avd "$AVD_NAME" $ACCEL \
   -camera-back none -camera-front none \
   -netdelay none -netspeed full \
   -port 5554 \
-  $EMULATOR_EXTRA_ARGS >/tmp/emulator.log 2>&1 &
+  $EMULATOR_EXTRA_ARGS ${QEMU_TAIL:-} >/tmp/emulator.log 2>&1 &
 EMU_PID=$!
 
 # Fit the phone window to the virtual screen (the emulator keeps the aspect
