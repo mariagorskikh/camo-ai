@@ -11,6 +11,8 @@ EMULATOR_RAM_MB="${EMULATOR_RAM_MB:-4096}"
 GEO_LAT="${GEO_LAT:-40.7580}"
 GEO_LON="${GEO_LON:--73.9855}"
 EMULATOR_EXTRA_ARGS="${EMULATOR_EXTRA_ARGS:-}"
+# Platforms such as Railway tell the app which port to serve HTTP on via PORT.
+NOVNC_PORT="${PORT:-6080}"
 export DISPLAY=:0
 export ANDROID_AVD_HOME="${ANDROID_AVD_HOME:-/data/avd}"
 export ANDROID_EMULATOR_HOME="${ANDROID_EMULATOR_HOME:-/data/.android}"
@@ -38,8 +40,8 @@ log "starting x11vnc on :5900 (password protected)"
 x11vnc -display :0 -rfbport 5900 -rfbauth /root/.vnc/passwd -forever -shared \
        -noxdamage -repeat -quiet -bg -o /tmp/x11vnc.log
 
-log "starting noVNC on http://0.0.0.0:6080/vnc.html"
-websockify --daemon --web /usr/share/novnc 6080 localhost:5900 >/tmp/websockify.log 2>&1
+log "starting noVNC on http://0.0.0.0:${NOVNC_PORT}/vnc.html"
+websockify --daemon --web /usr/share/novnc "$NOVNC_PORT" localhost:5900 >/tmp/websockify.log 2>&1
 
 # -------------------------------------------------------------------- AVD ----
 "$(dirname "$0")/create-avd.sh" "$AVD_NAME" "$DEVICE_PROFILE" "$EMULATOR_RAM_MB"
@@ -105,7 +107,7 @@ EMU_PID=$!
   adb -s emulator-5554 shell svc power stayon true >/dev/null 2>&1 || true
   adb -s emulator-5554 emu geo fix "$GEO_LON" "$GEO_LAT" >/dev/null 2>&1 || true
   log "GPS set to lat=$GEO_LAT lon=$GEO_LON"
-  log "READY -> open http://<host>:6080/vnc.html and use the VNC password"
+  log "READY -> open http://<host>:${NOVNC_PORT}/vnc.html and use the VNC password"
 ) &
 
 # Graceful stop: ask Android to shut down and give it time to flush the
