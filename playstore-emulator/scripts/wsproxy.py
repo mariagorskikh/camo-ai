@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Tiny front proxy for noVNC behind HTTP/2-terminating edges (Railway).
+
+Browsers open WebSockets over HTTP/2 (RFC 8441). Some edges translate that
+to HTTP/1.1 without the classic `Upgrade: websocket` / `Connection: Upgrade`
+headers, which websockify requires. This proxy listens on the public port,
+restores those headers when it sees a WebSocket key, and relays bytes in
+both directions. Plain HTTP requests are forwarded untouched.
+
+    wsproxy.py <listen_port> <websockify_port> [webview_port]
+
+Requests whose path starts with /phone go to the WebSocket-free viewer
+(webview.py) when a webview_port is given.
+"""
+import base64, os, socket, sys, threading
+
+LISTEN = int(sys.argv[1]); UPSTREAM = int(sys.argv[2])
+WEBVIEW = int(sys.argv[3]) if len(sys.argv) > 3 else None
+
+def log(*a):
+    print("[wsproxy]", *a, flush=True)
+
+def pump(src, dst):
+    try:
+        while True:
+            b = src.recv(65536)
+            if not b: break
+            dst.sendall(b)
+    except OSError:
+        pass
+    finally:
+        for s in (src, dst):
+            try: s.shutdown(socket.SHUT_RDWR)
+            except OSError: pass
+
+def handle(client):
+    try:
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            chunk = client.recv(65536)
+            if not chunk: return
+            buf += chunk
+            if len(buf) > 65536: return
+        head, rest = buf.split(b"\r\n\r\n", 1)
+        lines = head.split(b"\r\n")
+        request_line, headers = lines[0], lines[1:]
+        names = {h.split(b":", 1)[0].strip().lower() for h in headers if b":" in h}
+        # Over HTTP/2 (RFC 8441) the browser sends Sec-WebSocket-Version but
+        # no Sec-WebSocket-Key, and the edge drops Upgrade/Connection.
+        path = request_line.split(b" ")[1] if b" " in request_line else b""
+        target = UPSTREAM
+        if WEBVIEW and (path == b"/phone" or path.startswith(b"/phone/") or path.startswith(b"/phone?")):
+            target = WEBVIEW
+        elif (b"sec-websocket-version" in names or b"sec-websocket-key" in names
+                or b"/websockify" in path):
+            headers = [h for h in headers if h.split(b":", 1)[0].strip().lower() not in (b"upgrade", b"connection")]
+            headers += [b"Upgrade: websocket", b"Connection: Upgrade"]
+            if b"sec-websocket-key" not in names:
+                headers.append(b"Sec-WebSocket-Key: " + base64.b64encode(os.urandom(16)))
+            if b"sec-websocket-version" not in names:
+                headers.append(b"Sec-WebSocket-Version: 13")
+            log("websocket handshake", request_line.decode(errors="replace"),
+                "(key synthesized)" if b"sec-websocket-key" not in names else "")
+        head = b"\r\n".join([request_line] + headers)
+        up = socket.create_connection(("127.0.0.1", target))
+        up.sendall(head + b"\r\n\r\n" + rest)
+        t = threading.Thread(target=pump, args=(up, client), daemon=True); t.start()
+        pump(client, up)
+    except Exception as e:  # noqa: BLE001
+        log("error", e)
+    finally:
+        try: client.close()
+        except OSError: pass
+
+srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(("0.0.0.0", LISTEN)); srv.listen(64)
+log(f"listening on {LISTEN}, forwarding to websockify on {UPSTREAM}" + (f", /phone to webview on {WEBVIEW}" if WEBVIEW else ""))
+while True:
+    c, _ = srv.accept()
+    threading.Thread(target=handle, args=(c,), daemon=True).start()

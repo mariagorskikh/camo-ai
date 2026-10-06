@@ -1,0 +1,33 @@
+services:
+  android:
+    build: .
+    image: playstore-emulator
+    container_name: playstore-emulator
+    # Compose cannot make a device optional: this file requires /dev/kvm.
+    # For the (very slow) software-only mode use the `docker run` line in the README.
+    devices:
+      - /dev/kvm:/dev/kvm
+    # Published on localhost only: reach it through an SSH tunnel. The browser
+    # session is plain HTTP/WebSocket, so set NOVNC_BIND=0.0.0.0 only behind a
+    # TLS reverse proxy.
+    ports:
+      - "${NOVNC_BIND:-127.0.0.1}:6080:6080"   # http://localhost:6080/vnc.html
+      # - "127.0.0.1:5900:5900"               # raw VNC client (optional)
+      # - "127.0.0.1:5555:5555"               # adb connect localhost:5555 (optional)
+    environment:
+      # Required. Copy .env.example to .env and set it.
+      VNC_PASSWORD: ${VNC_PASSWORD:?set VNC_PASSWORD in .env (cp .env.example .env)}
+      # Starting GPS position (default: Manhattan). Change to where you want food delivered.
+      GEO_LAT: ${GEO_LAT:-40.7580}
+      GEO_LON: ${GEO_LON:--73.9855}
+      # Virtual screen the phone is drawn on. Keep it taller than wide (portrait).
+      SCREEN_WIDTH: ${SCREEN_WIDTH:-1000}
+      SCREEN_HEIGHT: ${SCREEN_HEIGHT:-1900}
+      EMULATOR_RAM_MB: ${EMULATOR_RAM_MB:-4096}
+    volumes:
+      - avd-data:/data
+    shm_size: 2g
+    restart: unless-stopped
+
+volumes:
+  avd-data:
