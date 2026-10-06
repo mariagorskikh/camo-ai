@@ -67,10 +67,12 @@ if [ -e /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
   log "KVM available: hardware acceleration on"
 else
   ACCEL="-accel off"
-  # Multi-threaded TCG: one host thread per virtual CPU instead of one for all.
-  QEMU_TAIL="-qemu -accel tcg,thread=multi"
-  log "WARNING: /dev/kvm not available. Running in pure software emulation"
-  log "         (multi-threaded TCG); boot takes 10-20 minutes and the phone is slow."
+  # Multi-threaded TCG (one host thread per vCPU) sounds attractive but in
+  # testing the guest never finished booting with it; opt in with
+  # EMULATOR_EXTRA_ARGS="-qemu -accel tcg,thread=multi" if you want to try.
+  QEMU_TAIL=""
+  log "WARNING: /dev/kvm not available. Running in pure software emulation;"
+  log "         boot takes 15-25 minutes and the phone is slow."
   log "         Run the container with --device /dev/kvm on a host that has KVM."
 fi
 
