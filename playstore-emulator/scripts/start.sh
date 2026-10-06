@@ -40,8 +40,11 @@ log "starting x11vnc on :5900 (password protected)"
 x11vnc -display :0 -rfbport 5900 -rfbauth /root/.vnc/passwd -forever -shared \
        -noxdamage -repeat -quiet -bg -o /tmp/x11vnc.log
 
+# websockify stays on localhost; the public port is served by wsproxy.py,
+# which restores WebSocket upgrade headers that HTTP/2 edges (Railway) strip.
+websockify --daemon --web /usr/share/novnc 127.0.0.1:6081 localhost:5900 >/tmp/websockify.log 2>&1
 log "starting noVNC on http://0.0.0.0:${NOVNC_PORT}/vnc.html"
-websockify --daemon --web /usr/share/novnc "$NOVNC_PORT" localhost:5900 >/tmp/websockify.log 2>&1
+python3 "$(dirname "$0")/wsproxy.py" "$NOVNC_PORT" 6081 &
 
 # -------------------------------------------------------------------- AVD ----
 "$(dirname "$0")/create-avd.sh" "$AVD_NAME" "$DEVICE_PROFILE" "$EMULATOR_RAM_MB"
