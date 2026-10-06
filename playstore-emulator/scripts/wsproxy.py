@@ -9,7 +9,7 @@ both directions. Plain HTTP requests are forwarded untouched.
 
     wsproxy.py <listen_port> <websockify_port>
 """
-import socket, sys, threading
+import base64, os, socket, sys, threading
 
 LISTEN = int(sys.argv[1]); UPSTREAM = int(sys.argv[2])
 
@@ -41,10 +41,15 @@ def handle(client):
         lines = head.split(b"\r\n")
         request_line, headers = lines[0], lines[1:]
         names = {h.split(b":", 1)[0].strip().lower() for h in headers if b":" in h}
-        if b"sec-websocket-key" in names:
+        # Over HTTP/2 (RFC 8441) the browser sends Sec-WebSocket-Version but
+        # no Sec-WebSocket-Key, and the edge drops Upgrade/Connection.
+        if b"sec-websocket-version" in names or b"sec-websocket-key" in names:
             headers = [h for h in headers if h.split(b":", 1)[0].strip().lower() not in (b"upgrade", b"connection")]
             headers += [b"Upgrade: websocket", b"Connection: Upgrade"]
-            log("websocket handshake", request_line.decode(errors="replace"))
+            if b"sec-websocket-key" not in names:
+                headers.append(b"Sec-WebSocket-Key: " + base64.b64encode(os.urandom(16)))
+            log("websocket handshake", request_line.decode(errors="replace"),
+                "(key synthesized)" if b"sec-websocket-key" not in names else "")
         head = b"\r\n".join([request_line] + headers)
         up = socket.create_connection(("127.0.0.1", UPSTREAM))
         up.sendall(head + b"\r\n\r\n" + rest)
