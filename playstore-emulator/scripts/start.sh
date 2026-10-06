@@ -26,7 +26,9 @@ mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_EMULATOR_HOME"
 log "starting Xvfb ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
 # -s 0 / -dpms: never blank the virtual screen.
 Xvfb :0 -screen 0 "${SCREEN_WIDTH}x${SCREEN_HEIGHT}x24" -nolisten tcp -ac +extension RANDR -s 0 -dpms &
-for _ in $(seq 1 50); do [ -e /tmp/.X11-unix/X0 ] && break; sleep 0.2; done
+# Wait until the X server actually answers (the socket appears a bit earlier).
+for _ in $(seq 1 100); do xset q >/dev/null 2>&1 && break; sleep 0.2; done
+xset q >/dev/null 2>&1 || { log "ERROR: Xvfb did not come up"; exit 1; }
 xset s off -dpms
 
 # The VNC protocol only checks the first 8 characters of a password. The real
