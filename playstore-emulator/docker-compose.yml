@@ -3,14 +3,20 @@ services:
     build: .
     image: playstore-emulator
     container_name: playstore-emulator
+    # Compose cannot make a device optional: this file requires /dev/kvm.
+    # For the (very slow) software-only mode use the `docker run` line in the README.
     devices:
       - /dev/kvm:/dev/kvm
+    # Published on localhost only: reach it through an SSH tunnel. The browser
+    # session is plain HTTP/WebSocket, so set NOVNC_BIND=0.0.0.0 only behind a
+    # TLS reverse proxy.
     ports:
-      - "6080:6080"       # browser: http://<host>:6080/vnc.html
-      # - "5900:5900"     # raw VNC client (optional)
-      # - "5555:5555"     # adb connect <host>:5555 (optional)
+      - "${NOVNC_BIND:-127.0.0.1}:6080:6080"   # http://localhost:6080/vnc.html
+      # - "127.0.0.1:5900:5900"               # raw VNC client (optional)
+      # - "127.0.0.1:5555:5555"               # adb connect localhost:5555 (optional)
     environment:
-      VNC_PASSWORD: ${VNC_PASSWORD:?set VNC_PASSWORD in .env}
+      # Required. Copy .env.example to .env and set it.
+      VNC_PASSWORD: ${VNC_PASSWORD:?set VNC_PASSWORD in .env (cp .env.example .env)}
       # Starting GPS position (default: Manhattan). Change to where you want food delivered.
       GEO_LAT: ${GEO_LAT:-40.7580}
       GEO_LON: ${GEO_LON:--73.9855}

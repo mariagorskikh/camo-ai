@@ -24,7 +24,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl unzip openjdk-17-jre-headless \
-        xvfb x11vnc novnc websockify xdotool \
+        xvfb x11vnc novnc websockify xdotool x11-xserver-utils \
         libpulse0 libnss3 libasound2t64 libfontconfig1 libdbus-1-3 libglib2.0-0 \
         libgl1 libegl1 libgl1-mesa-dri libx11-6 libx11-xcb1 libxcb1 libxext6 \
         libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxi6 libxrandr2 \

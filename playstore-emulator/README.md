@@ -10,15 +10,16 @@ browser ──http://host:6080──> noVNC ──> x11vnc ──> Xvfb ──> 
 
 ## What you need
 
-A Linux host with **KVM** (`/dev/kvm`). Without it the phone still runs but in
-pure software emulation, which takes 15+ minutes to boot and is painful to use.
+A Linux host with **KVM** (`/dev/kvm`). The compose file requires it. Without
+KVM the phone can still run in pure software emulation (`docker run` line
+below), but it takes about 30 minutes to boot and is painful to use.
 Hosts that work:
 
 | Host | Notes |
 |---|---|
 | Google Cloud VM | `deploy/gcp-create-vm.sh` does everything (needs `gcloud`). Uses `--enable-nested-virtualization`. |
 | Hetzner Cloud, Azure Dv3+/Ev3+, AWS `*.metal` | Create an Ubuntu 24.04 VM, copy this folder, run `deploy/vm-bootstrap.sh`. |
-| Your own Linux PC / Intel Mac with Linux | `docker compose up` works directly. |
+| Your own Linux PC / Intel Mac with Linux | `cp .env.example .env`, edit the password, `docker compose up`. |
 | Railway, Render, Fly, DigitalOcean, plain Docker Desktop on macOS | No KVM. Don't bother. |
 
 Recommended size: 4 vCPU, 16 GB RAM, 60 GB disk.
@@ -38,6 +39,22 @@ ssh -L 6080:localhost:6080 <user>@<vm-ip>
 
 and open <http://localhost:6080/vnc.html>. Enter the VNC password. The phone
 appears in portrait. Keyboard and mouse work as touch and typing.
+
+Port 6080 is published on the VM's localhost only, so the tunnel is required.
+After the bootstrap, run Docker commands with `sudo` until you log in again
+(the bootstrap adds your user to the `docker` group).
+
+### Plain Docker, including software-only mode
+
+```bash
+cp .env.example .env            # set VNC_PASSWORD
+docker build -t playstore-emulator .
+docker run -d --name playstore-emulator --device /dev/kvm \
+  -p 127.0.0.1:6080:6080 --env-file .env -v avd-data:/data --shm-size 2g \
+  playstore-emulator
+```
+
+Drop `--device /dev/kvm` on a host without KVM to get the slow software mode.
 
 ### Google Cloud in one command
 
@@ -76,7 +93,8 @@ the `avd-data` Docker volume.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `VNC_PASSWORD` | required | Password asked by the browser viewer. |
+| `VNC_PASSWORD` | required | Password asked by the browser viewer. VNC only checks the first 8 characters. |
+| `NOVNC_BIND` | `127.0.0.1` | Host address port 6080 is published on. Leave it unless you have TLS in front. |
 | `GEO_LAT`, `GEO_LON` | `40.7580`, `-73.9855` | GPS position set after boot. |
 | `SCREEN_WIDTH`, `SCREEN_HEIGHT` | `1000`, `1900` | Virtual monitor the phone is drawn on. Keep it taller than wide. |
 | `EMULATOR_RAM_MB` | `4096` | RAM given to Android. |
@@ -98,9 +116,13 @@ and the "..." extended controls for location, cellular, and battery.
 
 ## Security
 
-Everything that can order food with your cards is behind the VNC password only.
-Keep port 6080 closed on the firewall and use the SSH tunnel. If you must open
-it, put it behind HTTPS with a reverse proxy.
+Everything that can order food with your cards is behind the VNC password
+only, and the VNC protocol checks just the first 8 characters of it over a
+plain, unencrypted connection. That is why port 6080 is bound to `127.0.0.1`
+by default: the SSH tunnel provides the real authentication and encryption.
+If you need remote access without SSH, put a TLS-terminating reverse proxy
+with its own login (for example Caddy with basic auth) in front and only then
+set `NOVNC_BIND=0.0.0.0`.
 
 ## Caveats
 

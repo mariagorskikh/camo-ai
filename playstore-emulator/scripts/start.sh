@@ -22,10 +22,16 @@ mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_EMULATOR_HOME"
 
 # ---------------------------------------------------------------- X + VNC ----
 log "starting Xvfb ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
-Xvfb :0 -screen 0 "${SCREEN_WIDTH}x${SCREEN_HEIGHT}x24" -nolisten tcp -ac +extension RANDR &
+# -s 0 / -dpms: never blank the virtual screen.
+Xvfb :0 -screen 0 "${SCREEN_WIDTH}x${SCREEN_HEIGHT}x24" -nolisten tcp -ac +extension RANDR -s 0 -dpms &
 for _ in $(seq 1 50); do [ -e /tmp/.X11-unix/X0 ] && break; sleep 0.2; done
-xset s off -dpms 2>/dev/null || true
+xset s off -dpms
 
+# The VNC protocol only checks the first 8 characters of a password. The real
+# protection is keeping port 6080 off the public internet (see README).
+if [ "${#VNC_PASSWORD}" -gt 8 ]; then
+  log "note: VNC authentication only uses the first 8 characters of VNC_PASSWORD"
+fi
 mkdir -p /root/.vnc
 x11vnc -storepasswd "$VNC_PASSWORD" /root/.vnc/passwd >/dev/null 2>&1
 log "starting x11vnc on :5900 (password protected)"
@@ -65,14 +71,23 @@ EMU_PID=$!
 # ratio itself; the 60 px strip on the right is its toolbar).
 (
   for _ in $(seq 1 120); do
-    WID=$(xdotool search --name '^Android Emulator' 2>/dev/null | head -1)
+    WID=$(xdotool search --name '^Android Emulator' 2>/dev/null | head -1 || true)
     [ -n "$WID" ] && break
     sleep 1
   done
   if [ -n "${WID:-}" ]; then
-    xdotool windowmove "$WID" 0 0
-    xdotool windowsize "$WID" $((SCREEN_WIDTH - 60)) "$SCREEN_HEIGHT"
-    log "phone window fitted to ${SCREEN_WIDTH}x${SCREEN_HEIGHT}"
+    # The emulator re-applies its own geometry shortly after mapping the
+    # window, so keep asking until the height actually sticks.
+    for _ in $(seq 1 30); do
+      xdotool windowmove "$WID" 0 0 || true
+      xdotool windowsize "$WID" $((SCREEN_WIDTH - 60)) "$SCREEN_HEIGHT" || true
+      sleep 2
+      H=$(xdotool getwindowgeometry --shell "$WID" 2>/dev/null | sed -n 's/^HEIGHT=//p')
+      if [ "${H:-0}" -ge $((SCREEN_HEIGHT - 50)) ]; then
+        log "phone window fitted to ${SCREEN_WIDTH}x${SCREEN_HEIGHT} (height $H)"
+        break
+      fi
+    done
   fi
 ) &
 
@@ -93,6 +108,27 @@ EMU_PID=$!
   log "READY -> open http://<host>:6080/vnc.html and use the VNC password"
 ) &
 
-trap 'log "stopping"; adb -s emulator-5554 emu kill >/dev/null 2>&1 || true; kill $EMU_PID 2>/dev/null || true' TERM INT
+# Graceful stop: ask Android to shut down and give it time to flush the
+# persisted AVD before falling back to signals.
+shutdown() {
+  log "stopping: asking the emulator to shut down"
+  # adb can block when the guest is not fully up, so bound the request.
+  timeout 15 adb -s emulator-5554 emu kill >/dev/null 2>&1 || true
+  for _ in $(seq 1 60); do
+    kill -0 "$EMU_PID" 2>/dev/null || break
+    sleep 1
+  done
+  if kill -0 "$EMU_PID" 2>/dev/null; then
+    log "emulator still running after 60s, sending TERM"
+    kill "$EMU_PID" 2>/dev/null || true
+    for _ in $(seq 1 15); do kill -0 "$EMU_PID" 2>/dev/null || break; sleep 1; done
+    kill -9 "$EMU_PID" 2>/dev/null || true
+  fi
+}
+trap shutdown TERM INT
 tail -F /tmp/emulator.log 2>/dev/null &
-wait $EMU_PID
+wait $EMU_PID || true
+wait $EMU_PID 2>/dev/null || true
+# Stop the helper subshells (boot watcher, log tail) left behind.
+for j in $(jobs -p); do kill "$j" 2>/dev/null || true; done
+log "emulator exited"

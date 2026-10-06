@@ -37,15 +37,24 @@ fi
 cd "$PROJECT"
 
 if [ -z "$VNC_PASSWORD" ]; then
-  VNC_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
+  # 8 characters: VNC authentication ignores anything beyond that anyway.
+  VNC_PASSWORD="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-8)"
   echo "[bootstrap] generated VNC password: $VNC_PASSWORD"
 fi
 cat > .env <<ENV
 VNC_PASSWORD=$VNC_PASSWORD
 GEO_LAT=$GEO_LAT
 GEO_LON=$GEO_LON
+NOVNC_BIND=127.0.0.1
 ENV
 chmod 600 .env
+
+# When run through sudo, hand the checkout (and .env) back to the real user and
+# let them run docker without sudo (takes effect on their next login).
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+  chown -R "$SUDO_USER" "$PROJECT"
+  usermod -aG docker "$SUDO_USER" || true
+fi
 
 echo "[bootstrap] building image (downloads ~2 GB from Google, takes a few minutes)"
 docker compose build
@@ -54,10 +63,10 @@ docker compose up -d
 
 cat <<MSG
 
-Done. The phone boots in about a minute. Then either:
-  * SSH tunnel (recommended):  ssh -L 6080:localhost:6080 <user>@<this-vm>
-    and open  http://localhost:6080/vnc.html
-  * or open port 6080 in the firewall and browse to http://<this-vm-ip>:6080/vnc.html
+Done. The phone boots in about a minute. Port 6080 listens on this VM's
+localhost only, so connect with an SSH tunnel from your laptop:
+    ssh -L 6080:localhost:6080 <user>@<this-vm>
+and open  http://localhost:6080/vnc.html
 VNC password: $VNC_PASSWORD
-Logs: docker compose logs -f
+Logs: docker compose logs -f   (prefix with sudo until you log in again)
 MSG
