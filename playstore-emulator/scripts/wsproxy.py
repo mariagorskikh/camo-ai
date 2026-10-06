@@ -43,11 +43,17 @@ def handle(client):
         names = {h.split(b":", 1)[0].strip().lower() for h in headers if b":" in h}
         # Over HTTP/2 (RFC 8441) the browser sends Sec-WebSocket-Version but
         # no Sec-WebSocket-Key, and the edge drops Upgrade/Connection.
-        if b"sec-websocket-version" in names or b"sec-websocket-key" in names:
+        path = request_line.split(b" ")[1] if b" " in request_line else b""
+        if path.startswith(b"/websockify"):
+            log("request headers:", b" | ".join(headers).decode(errors="replace"))
+        if (b"sec-websocket-version" in names or b"sec-websocket-key" in names
+                or path.startswith(b"/websockify")):
             headers = [h for h in headers if h.split(b":", 1)[0].strip().lower() not in (b"upgrade", b"connection")]
             headers += [b"Upgrade: websocket", b"Connection: Upgrade"]
             if b"sec-websocket-key" not in names:
                 headers.append(b"Sec-WebSocket-Key: " + base64.b64encode(os.urandom(16)))
+            if b"sec-websocket-version" not in names:
+                headers.append(b"Sec-WebSocket-Version: 13")
             log("websocket handshake", request_line.decode(errors="replace"),
                 "(key synthesized)" if b"sec-websocket-key" not in names else "")
         head = b"\r\n".join([request_line] + headers)
